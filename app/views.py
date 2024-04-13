@@ -5,14 +5,73 @@ Werkzeug Documentation:  https://werkzeug.palletsprojects.com/
 This file creates your application.
 """
 
-from app import app
-from flask import render_template, request, jsonify, send_file
+from app import app, db
+from flask import make_response, render_template, request, jsonify, send_file, send_from_directory
+from flask_wtf.csrf import generate_csrf
+from werkzeug.utils import secure_filename
+from .models import Movie
+from .forms import MovieForm
 import os
 
 
 ###
 # Routing for your application.
 ###
+
+@app.route("/api/v1/movies", methods=['POST'])
+def movies():
+    form = MovieForm()
+
+    if request.method == 'POST':
+        if form.validate_on_submit():
+            title = form.title.data
+            description = form.description.data
+            poster = form.poster.data
+            filename = secure_filename(poster.filename) 
+            poster.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            movie = Movie(title, description, filename)
+            db.session.add(movie)
+            db.session.commit()
+            response = {
+                "message": "Movie Successfully added",
+                "title": title,
+                "poster": filename,
+                "description": description
+            }
+            return jsonify(response), 200
+        else:
+            return jsonify({"errors":form_errors(form)}), 400
+ 
+
+
+@app.route('/api/v1/csrf-token', methods=['GET'])
+def get_csrf():
+  return jsonify({'csrf_token': generate_csrf()})
+  
+
+@app.route("/api/v1/movies", methods=['GET'])
+def add_movies():
+    try:
+        print('hello')
+        movies = db.session.execute(db.select(Movie)).scalars()
+        movieslst = []
+        for movie in movies:
+            output = {
+                "id": movie.id,
+                "title": movie.title,
+                "description": movie.description,
+                "poster": f"/api/v1/posters/{movie.poster}" 
+            }
+            movieslst.append(output)
+        return jsonify({"Movies": movieslst}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/v1/posters/<filename>")
+def getPoster(filename):
+    return send_from_directory(os.path.join(os.getcwd(), app.config['UPLOAD_FOLDER']), filename)
+
 
 @app.route('/')
 def index():
